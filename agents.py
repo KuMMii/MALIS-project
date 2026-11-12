@@ -272,6 +272,87 @@ class HumanRuleAgent(Agent):
 # (Sutton and Barto, Chapter 2), as subclasses of Agent. Document each class:
 # what it keeps in memory, how it chooses, what its parameters mean.
 
+class EpsilonGreedyAgent(Agent):
+    """Task 4: Epsilon-greedy action-value agent (Sutton & Barto, Sections 2.2, 2.4, 2.5).
+
+    Memory:
+        Q (np.ndarray): estimated value (mean catch) for each spot.
+        N (np.ndarray): number of times each spot has been visited.
+
+    Choice rule:
+        With probability epsilon, choose a spot uniformly at random (explore).
+        With probability 1 - epsilon, choose a spot with the highest estimated
+        value Q (exploit), breaking ties randomly.
+
+    Parameters:
+        epsilon (float): exploration probability in [0, 1] (default 0.1).
+        alpha (float or None): constant step-size in (0, 1] for nonstationary
+            environments. If None, uses sample-average step-size 1 / N[spot].
+        initial_q (float): initial value estimate for all spots (default 0.0).
+    """
+
+    def __init__(self, epsilon=0.1, alpha=None, initial_q=0.0, n_spots=5, seed=None):
+        super().__init__(n_spots=n_spots, seed=seed)
+        self.epsilon = epsilon
+        self.alpha = alpha
+        self.initial_q = initial_q
+
+    def reset(self):
+        self.Q = np.full(self.n_spots, float(self.initial_q))
+        self.N = np.zeros(self.n_spots, dtype=int)
+
+    def choose(self):
+        if self.rng.random() < self.epsilon:
+            return int(self.rng.integers(self.n_spots))
+        max_q = np.max(self.Q)
+        best_spots = np.flatnonzero(np.isclose(self.Q, max_q))
+        return int(self.rng.choice(best_spots))
+
+    def update(self, spot, catch):
+        self.N[spot] += 1
+        step_size = self.alpha if self.alpha is not None else (1.0 / self.N[spot])
+        self.Q[spot] += step_size * (catch - self.Q[spot])
+
+
+class UCBAgent(Agent):
+    """Task 4: Upper-Confidence-Bound (UCB) agent (Sutton & Barto, Section 2.7).
+
+    Memory:
+        Q (np.ndarray): estimated value (sample-average catch) for each spot.
+        N (np.ndarray): number of times each spot has been visited.
+        t (int): total number of days elapsed in the current season.
+
+    Choice rule:
+        First visits every unvisited spot (N[a] == 0) once. Afterward, selects
+        the spot maximizing Q[a] + c * sqrt(ln(t) / N[a]), balancing high
+        estimated reward with uncertainty bonus. Ties are broken randomly.
+
+    Parameters:
+        c (float): exploration degree controlling the confidence width (default 2.0).
+    """
+
+    def __init__(self, c=2.0, n_spots=5, seed=None):
+        super().__init__(n_spots=n_spots, seed=seed)
+        self.c = c
+
+    def reset(self):
+        self.Q = np.zeros(self.n_spots, dtype=float)
+        self.N = np.zeros(self.n_spots, dtype=int)
+        self.t = 0
+
+    def choose(self):
+        untried = np.flatnonzero(self.N == 0)
+        if len(untried) > 0:
+            return int(self.rng.choice(untried))
+        ucb_values = self.Q + self.c * np.sqrt(np.log(self.t) / self.N)
+        max_ucb = np.max(ucb_values)
+        best_spots = np.flatnonzero(np.isclose(ucb_values, max_ucb))
+        return int(self.rng.choice(best_spots))
+
+    def update(self, spot, catch):
+        self.t += 1
+        self.N[spot] += 1
+        self.Q[spot] += (catch - self.Q[spot]) / self.N[spot]
 
 # Task 6 (optional): add your contextual agents below, as subclasses of
 # ContextualAgent.
