@@ -357,3 +357,134 @@ class UCBAgent(Agent):
 # Task 6 (optional): add your contextual agents below, as subclasses of
 # ContextualAgent.
 
+
+
+class ContextFreeUCBAgent(ContextualAgent):
+    """Task 6 baseline: the best agent of Part III (UCB, c=2.0), ignoring the conditions.
+
+    It receives the morning conditions x but does not use them. It exists so that
+    the contextual agents can be compared fairly with the best Part III method on
+    the same ContextualBay (play() refuses a plain Agent on a ContextualBay).
+
+    Memory:
+        Q (np.ndarray): sample-average catch of each spot.
+        N (np.ndarray): number of visits of each spot.
+        t (int): days elapsed.
+
+    Choice rule: identical to UCBAgent (Sutton & Barto, Section 2.7).
+
+    Parameters:
+        c (float): exploration degree (default 2.0, the Part III value).
+    """
+
+    def __init__(self, c=2.0, n_spots=5, seed=None):
+        super().__init__(n_spots=n_spots, seed=seed)
+        self.c = c
+
+    def reset(self):
+        self.Q = np.zeros(self.n_spots, dtype=float)
+        self.N = np.zeros(self.n_spots, dtype=int)
+        self.t = 0
+
+    def choose(self, x):
+        untried = np.flatnonzero(self.N == 0)
+        if len(untried) > 0:
+            return int(self.rng.choice(untried))
+        ucb_values = self.Q + self.c * np.sqrt(np.log(self.t) / self.N)
+        best_spots = np.flatnonzero(np.isclose(ucb_values, np.max(ucb_values)))
+        return int(self.rng.choice(best_spots))
+
+    def update(self, x, spot, catch):
+        self.t += 1
+        self.N[spot] += 1
+        self.Q[spot] += (catch - self.Q[spot]) / self.N[spot]
+
+
+class LinearGreedyAgent(ContextualAgent):
+    """Task 6: per-spot linear regression on the conditions, pure exploitation.
+
+    The simulator's true mean of spot k is linear in the conditions
+    (mean_k = base_k + weights_k . x_normalized, clipped at 0), so for each spot
+    we fit catch ~ a + b*wind + c*waves + d*tide by least squares and, after a
+    short initial exploration, ALWAYS go to the spot with the highest prediction
+    for today's conditions. No exploration afterwards: this is the agent that
+    "acts only on the predictions", and Section 5 of the notebook shows where
+    that fails (a spot that starts unlucky is predicted low, never revisited,
+    and its wrong prediction is never corrected).
+
+    Memory (per spot):
+        X[k]: list of observed condition vectors [wind, waves, tide].
+        y[k]: list of catches observed at that spot.
+        coef[k]: current regression coefficients [a, b, c, d], refit after
+                 every visit of spot k.
+
+    Choice rule:
+        Days 1 .. n_init*n_spots: visit every spot n_init times (random order),
+        so each regression has at least as many points as coefficients (4).
+        Afterwards: argmax over spots of prediction(today's x), ties broken
+        at random with self.rng.
+
+    Parameters:
+        n_init (int): initial visits per spot (default 4, the minimum that
+            makes the 4-coefficient least-squares problem determined).
+    """
+
+    def __init__(self, n_init=4, n_spots=5, seed=None):
+        super().__init__(n_spots=n_spots, seed=seed)
+        self.n_init = n_init
+
+    def reset(self):
+        n = self.n_spots
+        self.X = [[] for _ in range(n)]
+        self.y = [[] for _ in range(n)]
+        self.coef = [None] * n
+        self.t = 0
+        self.order = [int(s) for _ in range(self.n_init) for s in self.rng.permutation(n)]
+
+    def _fit(self, k):
+        A = np.column_stack([np.ones(len(self.y[k])), np.array(self.X[k])])
+        self.coef[k], *_ = np.linalg.lstsq(A, np.array(self.y[k]), rcond=None)
+
+    def _predict(self, k, x):
+        if self.coef[k] is None:
+            return -np.inf
+        return float(self.coef[k] @ np.concatenate(([1.0], x)))
+
+    def choose(self, x):
+        if self.t < len(self.order):              # initial exploration
+            return self.order[self.t]
+        preds = np.array([self._predict(k, x) for k in range(self.n_spots)])
+        best = np.flatnonzero(np.isclose(preds, np.max(preds)))
+        return int(self.rng.choice(best))
+
+    def update(self, x, spot, catch):
+        self.X[spot].append(np.asarray(x, dtype=float))
+        self.y[spot].append(float(catch))
+        self.t += 1
+        if len(self.y[spot]) >= 4:                # need 4 points for 4 coefficients
+            self._fit(spot)
+
+
+class LinearEpsilonGreedyAgent(LinearGreedyAgent):
+    """Task 6, the fix: the same linear-regression agent plus epsilon-exploration.
+
+    Identical to LinearGreedyAgent, except that after the initial exploration it
+    goes, with probability epsilon, to a spot chosen uniformly at random instead
+    of the predicted best. Every spot therefore keeps receiving fresh data, so a
+    prediction that started wrong (an unlucky first visit) gets corrected
+    instead of locking the spot out forever.
+
+    Parameters:
+        epsilon (float): exploration probability (default 0.1).
+        n_init (int): initial visits per spot, as in LinearGreedyAgent.
+    """
+
+    def __init__(self, epsilon=0.1, n_init=4, n_spots=5, seed=None):
+        super().__init__(n_init=n_init, n_spots=n_spots, seed=seed)
+        self.epsilon = epsilon
+
+    def choose(self, x):
+        if self.t >= len(self.order) and self.rng.random() < self.epsilon:
+            return int(self.rng.integers(self.n_spots))
+        return super().choose(x)
+
