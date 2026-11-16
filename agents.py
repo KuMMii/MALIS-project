@@ -141,25 +141,21 @@ class RandomContextualAgent(ContextualAgent):
 class HumanRuleAgent(Agent):
     """Task 4: the best human strategy identified in Part II, written as a rule.
 
-    Describe the rule here, precisely enough that someone could apply it by hand.
-    Add constructor parameters if your rule has any (call super().__init__ first).
-    
-    Rules:
-    1. Explore: visit every spot k times (random order).
-    2. Estimate: the mean of a spot = average of its last w catches.
-    3. Prune: a spot whose estmate is below (best estimate - delta) is not a candidate when switching.
-    4. Stay: keep fishing the current spot while today's catch >= ref - theta, where ref = average of the catches made at this spot since arrival. 
-        (before arrival, its estimate, for the first day)
-    5. Patience: a day with catch - ref - theta is a drop. Leave only after more than p consecutive drops (p=0 -> leave at first drop).
-    6. Switch: go to the non-pruned spot with the highest estimate if that estimate is above the ref of the spot being left; otherwise re-sample the least recently visited spot (any spot, even pruned one).
-    7. Commit: if the best spot has at least m visits and its estimate exceeds every other estimate by more than commit_margin, stay there until the end (m=None disables it).
-    8. End game: in the last e days do not explore, fish the spot with the best estimate. (We need to know the horizon = the number of days of the season)
-    
+    1. Explore: during the first k * n_spots days, visit every spot k times (random order).
+    2. Start: on the day after the exploration, go to the spot with the highest estimate.
+    3. End game: if the next day is one of the last e days of the season, fish the spot with the highest estimate (moving there if it is not the current one) and do not explore. Rules 4 to 6 are skipped.  Needs horizon, disabled when horizon is None.
+    4. Commit: if the spot with the highest estimate has at least m visits in the season and its estimate is more than commit_margin above every other estimate, go to it and stay there until the end (m=None disables it).
+    5. Stay: keep the current spot unless there have been more than p consecutive drops (p=0 → leave at the first drop).
+    6. Switch (after more than p consecutive drops):
+        - Prune: a spot is a candidate only if its estimate is not more than delta below the best estimate.
+        - Go to the candidate (other than the current spot) with the highest estimate if that estimate is above the mean of the catches of the stay that is ending (including today's catch).
+        - Otherwise, re-sample the least recently visited spot other than the current one (any spot, even a pruned one).
+
     Parameters: 
     k, w, delta, theta, p, commit_margin, m, e
     horizon: int or None -> number of days of the season (provided by the player)
 
-    Ex:
+    Ex of usage:
     bay = FishingBay(season=1, seed=0)
     total = play(HumanRuleAgent(horizon=bay.days, seed=0), bay)
 
@@ -178,7 +174,6 @@ class HumanRuleAgent(Agent):
         self.horizon = horizon
 
     def reset(self):
-        # raise NotImplementedError("Task 4")
         n = self.n_spots
         self.hist = [[] for _ in range(n)] # catches per spot
         self.last_visit = [-1] * n  # day index of the last visit
@@ -203,11 +198,9 @@ class HumanRuleAgent(Agent):
         return int(np.argmax([self._est(i) for i in range(self.n_spots)]))
 
     def choose(self):
-        # raise NotImplementedError("Task 4")
         return self.next
 
     def update(self, spot, catch):
-        # raise NotImplementedError("Task 4")
         self.hist[spot].append(catch)
         self.last_visit[spot] = self.t
         self.t += 1
@@ -228,7 +221,7 @@ class HumanRuleAgent(Agent):
         self.stay.append(catch)
         est = [self._est(i) for i in range(self.n_spots)]
 
-        # rule 8 -> end game, no exploring
+        # rule 3 -> end game, no exploring
         if self.horizon is not None and self.horizon - self.t <= self.e:
             b = self._best()
             if b != self.current:
@@ -236,7 +229,7 @@ class HumanRuleAgent(Agent):
             self.next = self.current
             return
 
-        # rule 7 -> commit
+        # rule 4 -> commit
         if self.m is not None and not self.commited:
             b = self._best()
             others = max(est[i] for i in range(self.n_spots) if i != b)
@@ -249,7 +242,7 @@ class HumanRuleAgent(Agent):
             self.next = self.current
             return
 
-        # rule 4-5 -> stay unless more than p consecutive drops
+        # rule 5 -> stay unless more than p consecutive drops
         if self.drops <= self.p:
             self.next = self.current
             return
@@ -257,7 +250,7 @@ class HumanRuleAgent(Agent):
         # rule 6 -> switch
         ref_leave = float(np.mean(self.stay))
         best_est = max(est)
-        cands = [i for i in range(self.n_spots) if i != self.current and est[i] >= best_est - self.delta] # rule 3
+        cands = [i for i in range(self.n_spots) if i != self.current and est[i] >= best_est - self.delta] 
         target = max(cands, key = lambda i: est[i]) if cands else None
 
         if target is None or est[target] <= ref_leave:
@@ -356,4 +349,3 @@ class UCBAgent(Agent):
 
 # Task 6 (optional): add your contextual agents below, as subclasses of
 # ContextualAgent.
-
