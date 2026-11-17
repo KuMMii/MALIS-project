@@ -273,7 +273,7 @@ class EpsilonGreedyAgent(Agent):
         N (np.ndarray): number of times each spot has been visited.
 
     Choice rule:
-        With probability epsilon, choose a spot uniformly at random (explore).
+        With probability epsilon, choose a random spot(explore).
         With probability 1 - epsilon, choose a spot with the highest estimated
         value Q (exploit), breaking ties randomly.
 
@@ -286,24 +286,28 @@ class EpsilonGreedyAgent(Agent):
 
     def __init__(self, epsilon=0.1, alpha=None, initial_q=0.0, n_spots=5, seed=None):
         super().__init__(n_spots=n_spots, seed=seed)
-        self.epsilon = epsilon
-        self.alpha = alpha
-        self.initial_q = initial_q
+        self.epsilon = epsilon        # probability of random exploration
+        self.alpha = alpha            # constant learning rate (None = sample average)
+        self.initial_q = initial_q    # optimistic/default initial estimate
 
     def reset(self):
-        self.Q = np.full(self.n_spots, float(self.initial_q))
-        self.N = np.zeros(self.n_spots, dtype=int)
-
+        self.Q = np.full(self.n_spots, float(self.initial_q))  # estimated mean catch per spot
+        self.N = np.zeros(self.n_spots, dtype=int)             # visit counter per spot
+    
     def choose(self):
+        # Explore: pick a random spot with probability epsilon
         if self.rng.random() < self.epsilon:
             return int(self.rng.integers(self.n_spots))
+        # Exploit: find all spots tied for the highest estimated value Q and break ties randomly
         max_q = np.max(self.Q)
         best_spots = np.flatnonzero(np.isclose(self.Q, max_q))
         return int(self.rng.choice(best_spots))
 
     def update(self, spot, catch):
-        self.N[spot] += 1
+        self.N[spot] += 1  # increment visit count for the chosen spot
+        # Use constant step-size alpha (for changing seasons) or 1/N (for sample average)
         step_size = self.alpha if self.alpha is not None else (1.0 / self.N[spot])
+        # Incremental update rule: NewEstimate = OldEstimate + StepSize * (Target - OldEstimate)
         self.Q[spot] += step_size * (catch - self.Q[spot])
 
 
@@ -326,25 +330,30 @@ class UCBAgent(Agent):
 
     def __init__(self, c=2.0, n_spots=5, seed=None):
         super().__init__(n_spots=n_spots, seed=seed)
-        self.c = c
-
+        self.c = c  # exploration weight controlling the uncertainty bonus
+    
     def reset(self):
-        self.Q = np.zeros(self.n_spots, dtype=float)
-        self.N = np.zeros(self.n_spots, dtype=int)
-        self.t = 0
+        self.Q = np.zeros(self.n_spots, dtype=float)  # sample-average catch per spot
+        self.N = np.zeros(self.n_spots, dtype=int)    # visit counter per spot
+        self.t = 0                                    # total days elapsed in the season
 
     def choose(self):
+        # Initial pass: visit every unvisited spot (N == 0) once
         untried = np.flatnonzero(self.N == 0)
         if len(untried) > 0:
             return int(self.rng.choice(untried))
+        # Compute UCB score = estimated value (exploitation) + uncertainty bonus (exploration)
         ucb_values = self.Q + self.c * np.sqrt(np.log(self.t) / self.N)
+
+        # Select the spot with the highest UCB score, breaking ties randomly
         max_ucb = np.max(ucb_values)
         best_spots = np.flatnonzero(np.isclose(ucb_values, max_ucb))
         return int(self.rng.choice(best_spots))
 
     def update(self, spot, catch):
-        self.t += 1
-        self.N[spot] += 1
+        self.t += 1        # advance day counter
+        self.N[spot] += 1  # increment visit count for the chosen spot
+        # Incremental sample-average update
         self.Q[spot] += (catch - self.Q[spot]) / self.N[spot]
 
 # Task 6 (optional): add your contextual agents below, as subclasses of
