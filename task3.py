@@ -147,9 +147,9 @@ except ImportError:
 # PART 3. YOUR TEAM
 # =====================================================================
 LOG_FILES = {
-    "Player 1": "fishing_log_ioni.json",
-    "Player 2": "fishing_log_szabo.json",
-    "Player 3": "fishing_log_kimj.json",
+    "Bianca": "fishing_log_ioni.json",
+    "Andreea": "fishing_log_szabo.json",
+    "Jieun": "fishing_log_kimj.json",
 }
 logs = {name: load_log(path) for name, path in LOG_FILES.items()}
 
